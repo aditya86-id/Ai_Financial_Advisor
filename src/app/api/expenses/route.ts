@@ -1,9 +1,9 @@
 import {
   handleApiError,
   optionalBoolean,
+  optionalString,
   readJsonBody,
   requiredNumber,
-  requiredString,
   requireAuth,
 } from '@/lib/api'
 import { NextResponse } from 'next/server'
@@ -45,12 +45,47 @@ export async function POST(request: Request) {
   try {
     const { supabase, user } = await requireAuth()
     const body = await readJsonBody(request)
-    const accountId = requiredString(body, 'account_id', 'accountId')
-    const date = requiredString(body, 'date')
-    const description = requiredString(body, 'description')
+    let accountId = optionalString(body, 'account_id', 'accountId')
+    const date = optionalString(body, 'date') ?? new Date().toISOString().slice(0, 10)
+    const description = optionalString(body, 'description') ?? 'Expense'
     const amount = requiredNumber(body, 'amount')
-    const category = requiredString(body, 'category')
+    const category = optionalString(body, 'category') ?? 'General'
     const isPending = optionalBoolean(body, 'is_pending', 'isPending') ?? false
+
+    if (!accountId) {
+      const { data: existingAccount, error: accountLookupError } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('name', 'Cash')
+        .maybeSingle()
+
+      if (accountLookupError) {
+        throw accountLookupError
+      }
+
+      if (existingAccount) {
+        accountId = existingAccount.id
+      } else {
+        const { data: createdAccount, error: accountCreateError } = await supabase
+          .from('accounts')
+          .insert({
+            user_id: user.id,
+            name: 'Cash',
+            type: 'cash',
+            balance: 0,
+            currency: 'INR',
+          })
+          .select('id')
+          .single()
+
+        if (accountCreateError) {
+          throw accountCreateError
+        }
+
+        accountId = createdAccount.id
+      }
+    }
 
     const { data: expense, error } = await supabase
       .from('transactions')
