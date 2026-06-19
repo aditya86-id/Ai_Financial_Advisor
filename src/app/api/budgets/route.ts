@@ -13,17 +13,17 @@ export async function GET() {
   try {
     const { supabase, user } = await requireAuth()
 
-    const { data: goals, error } = await supabase
-      .from('goals')
+    const { data: budgets, error } = await supabase
+      .from('budgets')
       .select('*')
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+      .order('category', { ascending: true })
 
     if (error) {
       throw error
     }
 
-    return NextResponse.json({ goals })
+    return NextResponse.json({ budgets })
   } catch (error) {
     return handleApiError(error)
   }
@@ -33,19 +33,19 @@ export async function POST(request: Request) {
   try {
     const { supabase, user } = await requireAuth()
     const body = await readJsonBody(request)
-    const name = requiredString(body, 'name')
-    const targetAmount = requiredNumber(body, 'target_amount', 'targetAmount')
-    const currentAmount = optionalNumber(body, 'current_amount', 'currentAmount') ?? 0
-    const targetDate = optionalString(body, 'target_date', 'targetDate') ?? null
+    const category = requiredString(body, 'category')
+    const limitAmount = requiredNumber(body, 'limit_amount', 'limitAmount')
+    const currentSpent = optionalNumber(body, 'current_spent', 'currentSpent') ?? 0
+    const period = optionalString(body, 'period') ?? 'monthly'
 
-    const { data: goal, error } = await supabase
-      .from('goals')
+    const { data: budget, error } = await supabase
+      .from('budgets')
       .insert({
         user_id: user.id,
-        name,
-        target_amount: targetAmount,
-        current_amount: currentAmount || 0,
-        target_date: targetDate || null,
+        category,
+        limit_amount: limitAmount,
+        current_spent: currentSpent,
+        period,
       })
       .select()
       .single()
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       throw error
     }
 
-    return NextResponse.json({ goal }, { status: 201 })
+    return NextResponse.json({ budget }, { status: 201 })
   } catch (error) {
     return handleApiError(error)
   }

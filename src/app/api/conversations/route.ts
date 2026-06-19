@@ -1,10 +1,7 @@
 import {
   handleApiError,
-  optionalNumber,
   optionalString,
   readJsonBody,
-  requiredNumber,
-  requiredString,
   requireAuth,
 } from '@/lib/api'
 import { NextResponse } from 'next/server'
@@ -13,9 +10,9 @@ export async function GET() {
   try {
     const { supabase, user } = await requireAuth()
 
-    const { data: goals, error } = await supabase
-      .from('goals')
-      .select('*')
+    const { data: conversations, error } = await supabase
+      .from('ai_coach_conversations')
+      .select('id, title, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
@@ -23,7 +20,7 @@ export async function GET() {
       throw error
     }
 
-    return NextResponse.json({ goals })
+    return NextResponse.json({ conversations })
   } catch (error) {
     return handleApiError(error)
   }
@@ -33,19 +30,13 @@ export async function POST(request: Request) {
   try {
     const { supabase, user } = await requireAuth()
     const body = await readJsonBody(request)
-    const name = requiredString(body, 'name')
-    const targetAmount = requiredNumber(body, 'target_amount', 'targetAmount')
-    const currentAmount = optionalNumber(body, 'current_amount', 'currentAmount') ?? 0
-    const targetDate = optionalString(body, 'target_date', 'targetDate') ?? null
+    const title = optionalString(body, 'title') ?? 'New conversation'
 
-    const { data: goal, error } = await supabase
-      .from('goals')
+    const { data: conversation, error } = await supabase
+      .from('ai_coach_conversations')
       .insert({
         user_id: user.id,
-        name,
-        target_amount: targetAmount,
-        current_amount: currentAmount || 0,
-        target_date: targetDate || null,
+        title,
       })
       .select()
       .single()
@@ -54,7 +45,7 @@ export async function POST(request: Request) {
       throw error
     }
 
-    return NextResponse.json({ goal }, { status: 201 })
+    return NextResponse.json({ conversation }, { status: 201 })
   } catch (error) {
     return handleApiError(error)
   }

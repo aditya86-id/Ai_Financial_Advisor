@@ -1,6 +1,46 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import OpenAI from 'openai'
+
+type GroqMessage = {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+type GroqStreamChunk = {
+  choices?: Array<{
+    delta?: {
+      content?: string
+    }
+  }>
+}
+
+async function createGroqStream(messages: GroqMessage[]) {
+  const apiKey = process.env.GROQ_API_KEY
+
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY is not configured')
+  }
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: process.env.GROQ_MODEL ?? 'llama-3.1-8b-instant',
+      messages,
+      stream: true,
+    }),
+  })
+
+  if (!response.ok || !response.body) {
+    const details = await response.text()
+    throw new Error(`Groq request failed: ${details || response.statusText}`)
+  }
+
+  return response.body
+}
 
 export async function POST(request: Request) {
   try {
@@ -49,36 +89,54 @@ export async function POST(request: Request) {
       content: msg.content,
     }))
 
-    // 4. Initialize OpenAI client
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    })
-
-    // 5. Query OpenAI chat API with streaming
-    const responseStream = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
+    const groqStream = await createGroqStream([
         {
           role: 'system',
           content: 'You are FinCoach AI, a professional and friendly AI personal finance coach. Provide actionable, concise, and structured advice regarding savings, budgeting, investments, and debt management.'
         },
         ...formattedMessages,
-      ],
-      stream: true,
-    })
+    ])
 
-    // 6. Return standard SSE Stream
     const encoder = new TextEncoder()
+    const decoder = new TextDecoder()
     const customStream = new ReadableStream({
       async start(controller) {
         let assistantContent = ''
+        let buffer = ''
+        const reader = groqStream.getReader()
         
         try {
-          for await (const chunk of responseStream) {
-            const text = chunk.choices[0]?.delta?.content || ''
-            if (text) {
-              assistantContent += text
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
+          while (true) {
+            const { done, value } = await reader.read()
+
+            if (done) {
+              break
+            }
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+
+            for (const line of lines) {
+              const trimmed = line.trim()
+
+              if (!trimmed.startsWith('data:')) {
+                continue
+              }
+
+              const payload = trimmed.slice(5).trim()
+
+              if (payload === '[DONE]') {
+                continue
+              }
+
+              const chunk = JSON.parse(payload) as GroqStreamChunk
+              const text = chunk.choices?.[0]?.delta?.content ?? ''
+
+              if (text) {
+                assistantContent += text
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
+              }
             }
           }
           
@@ -104,8 +162,9 @@ export async function POST(request: Request) {
         'Connection': 'keep-alive',
       },
     })
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
     console.error(err)
-    return NextResponse.json({ error: 'Internal Server Error', details: err.message }, { status: 500 })
+    return NextResponse.json({ error: 'Internal Server Error', details: message }, { status: 500 })
   }
 }

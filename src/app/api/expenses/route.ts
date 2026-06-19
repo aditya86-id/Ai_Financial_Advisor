@@ -1,19 +1,21 @@
-import { createClient } from '@/lib/supabase/server'
+import {
+  handleApiError,
+  optionalBoolean,
+  readJsonBody,
+  requiredNumber,
+  requiredString,
+  requireAuth,
+} from '@/lib/api'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createClient()
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const { supabase, user } = await requireAuth()
 
     const { searchParams } = new URL(request.url)
     const category = searchParams.get('category')
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
+    const limit = Math.min(Number(searchParams.get('limit') ?? 50), 100)
+    const offset = Number(searchParams.get('offset') ?? 0)
 
     let query = supabase
       .from('transactions')
@@ -30,29 +32,25 @@ export async function GET(request: Request) {
     const { data: expenses, error } = await query
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      throw error
     }
 
     return NextResponse.json({ expenses })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (error) {
+    return handleApiError(error)
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient()
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { accountId, date, description, amount, category, isPending } = await request.json()
-
-    if (!accountId || !date || !description || amount === undefined || !category) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-    }
+    const { supabase, user } = await requireAuth()
+    const body = await readJsonBody(request)
+    const accountId = requiredString(body, 'account_id', 'accountId')
+    const date = requiredString(body, 'date')
+    const description = requiredString(body, 'description')
+    const amount = requiredNumber(body, 'amount')
+    const category = requiredString(body, 'category')
+    const isPending = optionalBoolean(body, 'is_pending', 'isPending') ?? false
 
     const { data: expense, error } = await supabase
       .from('transactions')
@@ -64,17 +62,17 @@ export async function POST(request: Request) {
         amount,
         category,
         type: 'expense',
-        is_pending: !!isPending,
+        is_pending: isPending,
       })
       .select()
       .single()
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      throw error
     }
 
     return NextResponse.json({ expense }, { status: 201 })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (error) {
+    return handleApiError(error)
   }
 }

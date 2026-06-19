@@ -1,6 +1,5 @@
 import {
   handleApiError,
-  optionalBoolean,
   optionalNumber,
   optionalString,
   readJsonBody,
@@ -17,28 +16,23 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const { supabase, user } = await requireAuth()
     const { id } = await params
     const body = await readJsonBody(request)
-    const updates: Record<string, string | number | boolean> = {}
+    const updates: Record<string, string | number> = {}
 
-    const accountId = optionalString(body, 'account_id', 'accountId')
-    const date = optionalString(body, 'date')
-    const description = optionalString(body, 'description')
-    const amount = optionalNumber(body, 'amount')
     const category = optionalString(body, 'category')
-    const isPending = optionalBoolean(body, 'is_pending', 'isPending')
+    const limitAmount = optionalNumber(body, 'limit_amount', 'limitAmount')
+    const currentSpent = optionalNumber(body, 'current_spent', 'currentSpent')
+    const period = optionalString(body, 'period')
 
-    if (accountId !== undefined) updates.account_id = accountId
-    if (date !== undefined) updates.date = date
-    if (description !== undefined) updates.description = description
-    if (amount !== undefined) updates.amount = amount
     if (category !== undefined) updates.category = category
-    if (isPending !== undefined) updates.is_pending = isPending
+    if (limitAmount !== undefined) updates.limit_amount = limitAmount
+    if (currentSpent !== undefined) updates.current_spent = currentSpent
+    if (period !== undefined) updates.period = period
 
-    const { data: expense, error } = await supabase
-      .from('transactions')
+    const { data: budget, error } = await supabase
+      .from('budgets')
       .update(updates)
       .eq('id', id)
       .eq('user_id', user.id)
-      .eq('type', 'expense')
       .select()
       .single()
 
@@ -46,23 +40,22 @@ export async function PUT(request: Request, { params }: RouteParams) {
       throw error
     }
 
-    return NextResponse.json({ expense })
+    return NextResponse.json({ budget })
   } catch (error) {
     return handleApiError(error)
   }
 }
 
-export async function DELETE(request: Request, { params }: RouteParams) {
+export async function DELETE(_request: Request, { params }: RouteParams) {
   try {
     const { supabase, user } = await requireAuth()
     const { id } = await params
 
     const { error } = await supabase
-      .from('transactions')
+      .from('budgets')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id)
-      .eq('type', 'expense')
 
     if (error) {
       throw error
